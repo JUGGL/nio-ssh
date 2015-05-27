@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.zanclus.ssh</groupId>
+  <artifactId>nio-ssh</artifactId>
+  <version>1.0-SNAPSHOT</version>
+
+<!--
+  YOU MUST PROVIDE THE FOLLOWING INFORMATION FOR YOUR PROJECT IN ORDER TO PUBLISH TO MAVEN CENTRAL
+
+  <name>REQUIRED</name>
+  <description>REQUIRED</description>
+  <url>REQUIRED</url>
+  <developers>
+    <developer>
+      <name>REQUIRED</name>
+    </developer>
+  </developers>
+  <scm>
+    <url>REQUIRED</url>
+    <developerConnection>scm:git:ssh://GITURL_OR_REPLACE_WITH_OTHER_SCM</developerConnection>
+  </scm>
+  <licenses>
+    <license>
+      <distribution>repo</distribution>
+      <name>REQUIRED</name>
+    </license>
+  </licenses>
+-->
+ 
+  <distributionManagement>
+    <snapshotRepository>
+      <id>ossrh</id>
+      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+    </snapshotRepository>
+    <repository>
+      <id>ossrh</id>
+      <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+    </repository>
+  </distributionManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <artifactId>maven-release-plugin</artifactId>
+          <version>2.5.1</version>
+          <configuration>
+            <useReleaseProfile>false</useReleaseProfile>
+            <arguments>-P${project.name}-release</arguments>
+            <pushChanges>false</pushChanges>
+            <localCheckout>true</localCheckout>
+            <goals>deploy</goals>
+          </configuration>
+        </plugin>
+<!--
+  The Nexus Staging Plugin allows you to publish to Maven Central. In order to make use of this plugin, you will need
+  to configure your ${HOMEDIR}/.m2/settings.xml file to have a server ID of 'ossrh' which defines the username
+  and password which will be used to publish to the OSSRH Staging Nexus Server. This username/password is the same
+  as the JIRA account that you must create in order to start publishing to Central. To get an account, go to:
+  
+  http://central.sonatype.org/pages/ossrh-guide.html
+  
+  Follow the instructions about creating a JIRA account and a ticket for the group ID under which you will publish
+  your artifacts to Maven.
+  
+  Once you have the username/password, create the file ${HOMEDIR}/.m2/settings.xml file with at least the following 
+  contents:
+  
+  <settings>
+    <servers>
+      <server>
+        <id>ossrh</id>
+          <username>YOUR OSSRH Username</username>
+          <password>YOUR OSSRH Password</password>
+      </server>
+    </servers>
+  </settings>
+  
+  You must also generate a GPG/PGP public/private key pair for signing your artifacts. Since this is very platform
+  specific, this is left as an exercise for the end user. As long as the "gpg" command is in your ${PATH}, and as long
+  as your default key is set to be your signing key, the maven-gpg-plugin below should work automatically. If you are
+  on Windows or a platform on which setting the GPG command path is difficult, please refer to the documentation for the
+  maven-gpg-plugin at:
+  
+  https://maven.apache.org/plugins/maven-gpg-plugin/
+  
+  Once these prerequisites are satisfied, you can deploy your project with the following maven command:
+  
+  mvn clean deploy
+  
+  If your version includes "-SNAPSHOT", the artifact will be published to the SNAPSHOT repository for OSSRH. If it 
+  does not contain "-SNAPSHOT", the plugin will try to publish to Maven Central releases. 
+  
+  NOTE!!! Your published artifact MUST meet the requirements for publishing to Maven Central. This means that the 
+  project MUST provide at a minimum:
+  
+    JavaDoc AND Source JARs
+    Artifact Signatures
+    Correct Coordinates
+    Project Name, Description and URL
+    License Information
+    Developer Information
+    SCM Information
+
+-->
+        <plugin>  
+          <groupId>org.sonatype.plugins</groupId>
+          <artifactId>nexus-staging-maven-plugin</artifactId>
+          <version>1.6.3</version>
+          <extensions>true</extensions>
+          <configuration>
+            <serverId>ossrh</serverId>
+            <nexusUrl>https://oss.sonatype.org/</nexusUrl>
+            <autoReleaseAfterClose>true</autoReleaseAfterClose>
+          </configuration>
+        </plugin> 
+      </plugins>
+    </pluginManagement>
+    <plugins>
+      <plugin>
+        <groupId>org.sonatype.plugins</groupId>
+        <artifactId>nexus-staging-maven-plugin</artifactId>
+        <extensions>true</extensions>
+        <configuration>
+          <serverId>ossrh</serverId>
+          <nexusUrl>https://oss.sonatype.org/</nexusUrl>
+          <autoReleaseAfterClose>true</autoReleaseAfterClose>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>2.5</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+            <configuration>
+              <classifier>javadoc</classifier>
+              <includes>
+                <include>README.md</include>
+              </includes>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <version>2.2.1</version>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <goals>
+              <goal>jar-no-fork</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>2.9.1</version>
+        <executions>
+          <execution>
+            <id>attach-javadocs</id>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-gpg-plugin</artifactId>
+        <version>1.5</version>
+        <executions>
+          <execution>
+            <id>sign-artifacts</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>sign</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+  <profiles>  
+    <profile>
+      <id>${project.name}-release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>1.5</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+    <dependencies>
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-all</artifactId>
+            <version>4.0.28.Final</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpg-jdk15on</artifactId>
+            <version>1.52</version>
+        </dependency>
+    </dependencies>
+</project>

@@ -92,6 +92,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ```
+* API design should learn lessons from other SPIs which are intended to be [long-lived and evolve](http://blog.jooq.org/2015/05/21/do-not-make-this-mistake-when-developing-an-spi/).
 * Contributors to this project retain all copyrights to their work. If, at a future date, a license change is desirable; all contributors MUST agree or their code must be rewritten as a "clean-room" implementation.
 * Others as they are identified and codified
 

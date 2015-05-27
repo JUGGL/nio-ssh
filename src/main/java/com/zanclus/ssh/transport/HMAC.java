@@ -11,12 +11,12 @@ import org.bouncycastle.crypto.tls.MACAlgorithm;
  * @author <a href="https://github.com/InfoSec812">Deven Phillips</a>
  */
 public enum HMAC {
-
-    SHA1(20, 20, "hmac-sha1", SHA1Digest.class),
-    SHA1_96(20, 12, "hmac-sha1-96", SHA1Digest.class),
-    MD5(16, 16, "hmac-md5", MD5Digest.class),
-    MD5_96(16, 12, "hmac-md5-96", MD5Digest.class),
-    NONE(0, 0, "none", null);
+//        keylen   digestlen              id   hash implementation
+    SHA1     (20,         20,    "hmac-sha1",  SHA1Digest.class ),
+    SHA1_96  (20,         12, "hmac-sha1-96",  SHA1Digest.class ),
+    MD5      (16,         16,     "hmac-md5",  MD5Digest.class  ),
+    MD5_96   (16,         12,  "hmac-md5-96",  MD5Digest.class  ),
+    NONE     ( 0,          0,         "none",  null             );
 
     private final int keyLen;
     private final int digestLen;

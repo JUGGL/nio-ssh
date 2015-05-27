@@ -1,20 +1,24 @@
 package com.zanclus.ssh.transport;
 
+import com.zanclus.ssh.errors.InvalidMACException;
 import com.zanclus.ssh.errors.PacketSizeException;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
-import java.math.BigInteger;
 import java.util.List;
-import org.bouncycastle.crypto.CipherParameters;
-import org.bouncycastle.crypto.Digest;
+import lombok.extern.slf4j.Slf4j;
+import org.bouncycastle.crypto.BufferedBlockCipher;
+import org.bouncycastle.crypto.InvalidCipherTextException;
 import org.bouncycastle.crypto.macs.HMac;
+import org.bouncycastle.crypto.params.KeyParameter;
 
 /**
- * An extension to the {@link LengthFieldBasedFrameDecoder} which will decode the {@link ByteBuf}
- * into an SSH {@link Packet}
+ * An extension to the {@link ByteToMessageDecoder} which will decode the {@link ByteBuf}
+ * into an SSH Packet
  * @author <a href="https://github.com/InfoSec812">Deven Phillips</a>
+ * @see <a href="https://tools.ietf.org/html/rfc4253">RFC 4253</a>
  */
+@Slf4j
 public class SSHFrameDecoder extends ByteToMessageDecoder {
     
     /**
@@ -26,15 +30,22 @@ public class SSHFrameDecoder extends ByteToMessageDecoder {
      */
     private static final int HEADER_LEN = 5;
     
-    private final CipherParameters macParams;
+    private final KeyParameter key;
     private final HMAC algorithm;
-    private byte[] macDigest;
+    private final BufferedBlockCipher cipher;
     
     private boolean largePacketSupport = false;
     
-    public SSHFrameDecoder(HMAC algorithm, CipherParameters macParams) {
+    /**
+     * Constructor for SSH decoder to be added to the {@link io.netty.channel.Channel} on which
+     * a stream is received.
+     * @param algorithm The {@link HMAC} algorithm which this connection uses for message authentication
+     * @param key 
+     */
+    public SSHFrameDecoder(HMAC algorithm, BufferedBlockCipher cipher, KeyParameter key) {
         this.algorithm = algorithm;
-        this.macParams = macParams;
+        this.cipher = cipher;
+        this.key = key;
     }
 
     @Override
@@ -43,53 +54,88 @@ public class SSHFrameDecoder extends ByteToMessageDecoder {
         if (in.readableBytes()>HEADER_LEN) {
             byte[] header = new byte[HEADER_LEN];
             in.readBytes(header);
-            int packetLen = ((0xFF & header[0]) << 24) | ((0xFF & header[1]) << 16) | ((0xFF & header[2]) << 8) | (0xFF & header[3]);
+            int packetLen = shift(header[0], 24) | shift(header[1], 16) | shift(header[2], 8) | shift(header[3], 0);
             if (largePacketSupport || packetLen<=35000) {
                 int paddingLen = (int)header[4];
                 int payloadLen = packetLen - paddingLen - HEADER_LEN;
+                if (algorithm.equals(HMAC.NONE)) {
+                    LOG.warn("HMAC algorithm set to NONE, this SHOULD only happen during inital key exchange."
+                        + "See https://tools.ietf.org/html/rfc4253#section-6");
+                }
                 if (in.readableBytes()>=(payloadLen+paddingLen+algorithm.digestLen())) {
 
                     // Read the payload
                     byte[] payload = new byte[payloadLen];
                     in.readBytes(payload);
+                    
+                    byte[] plaintext = decryptPayload(payload);
 
                     // Skip the random padding
                     in.skipBytes(paddingLen);
 
-                    // Calculate the MAC for the payload read from the ByteBuf
-                    HMac mac = new HMac(algorithm.digest().newInstance());
-                    mac.init(macParams);
-                    mac.update(payload, 0, payloadLen);
-                    int macSize = mac.getMacSize();
-                    byte[] computedMAC = new byte[macSize];
-                    mac.doFinal(computedMAC, 0);
+                    byte[] computedMAC = calculateMAC(plaintext);
 
                     // Read MAC from ByteBuf
                     byte[] recievedMAC = new byte[algorithm.digestLen()];
                     in.readBytes(recievedMAC);
 
                     // Compare calculcated MAC with MAC read from ByteBuf
-                    boolean validMAC = true;
-                    for (int x=0; x<algorithm.digestLen(); x++) {
-                        if (recievedMAC[x]!=computedMAC[x]) {
-                            validMAC = false;
-                            break;
-                        }
+                    if (computedMAC.length>=algorithm.digestLen() && recievedMAC.length==algorithm.digestLen()) {
+                        validateMAC(recievedMAC, computedMAC);
+                    } else {
+                        throw new InvalidMACException("Either the computed or received MAC size does not match "
+                            + "expected length for the negotiated algorithm.");
                     }
-
-                    // If the MACs agree, add the SSH frame to the output list
-                    if (validMAC) {
-                        out.add(payload);
-                    }
+                    LOG.debug("Message Packet decoded and MAC verified.");
                 } else {
+                    LOG.info("Insufficient bytes to finish decoding Packet. Resetting input buffer.");
                     in.resetReaderIndex();
                 }
             } else {
                 // Packet length cannot be greater than 35000 bytes according to RFC 4253 Section 6.1
-                throw new PacketSizeException(String.format("Packet size of '%d' exceeds RFC 4253 recommendations and large packet support was not expressly enabled.", packetLen));
+                throw new PacketSizeException(String.format("Packet size of '%d' exceeds RFC 4253 recommendations and "
+                    + "large packet support was not expressly enabled.", packetLen));
             }
         } else {
+            LOG.info("Insufficient bytes to finish decoding Packet. Resetting input buffer.");
             in.resetReaderIndex();
+        }
+    }
+    
+    /**
+     * Given a shared secret {@code key}, a {@code cipher}, and an encrypted payload; decrypt the
+     * payload and return it as an array of {@code byte}s
+     * @param payload The encrypted payload
+     * @return An array of {@code byte}s containing the decrypted payload
+     */
+    private byte[] decryptPayload(byte[] payload) throws InvalidCipherTextException {
+        cipher.init(true, key);
+        byte[] plaintext = new byte[cipher.getOutputSize(payload.length)];
+        int len = cipher.processBytes(payload, 0, payload.length, plaintext, 0);
+        len += cipher.doFinal(plaintext, len);
+        return plaintext;
+    }
+
+    /**
+     * Calculate the MAC for the payload read from the ByteBuf
+     * TODO: MAC MUST be calculated AFTER decryption!
+     * @param payload The decrypted payload
+     */
+    private byte[] calculateMAC(byte[] payload) throws IllegalAccessException, InstantiationException {
+        HMac mac = new HMac(algorithm.digest().newInstance());
+        mac.init(key);
+        mac.update(payload, 0, payload.length);
+        int macSize = mac.getMacSize();
+        byte[] computedMAC = new byte[macSize];
+        mac.doFinal(computedMAC, 0);
+        return computedMAC;
+    }
+
+    private void validateMAC(byte[] recievedMAC, byte[] computedMAC) throws InvalidMACException {
+        for (int x=0; x<algorithm.digestLen(); x++) {
+            if (recievedMAC[x]!=computedMAC[x]) {
+                throw new InvalidMACException("Packet message cannot be authenticated.");
+            }
         }
     }
 
@@ -109,5 +155,15 @@ public class SSHFrameDecoder extends ByteToMessageDecoder {
      */
     public boolean largePacketSupport() {
         return this.largePacketSupport;
+    }
+    
+    /**
+     * Given a {@code byte} and an offset, left-shift the byte and return the resultant integer
+     * @param b The {@code byte} to be shifted
+     * @param offset The number of places to the left the byte should be shifted
+     * @return An integer representing the shifted {@code byte}
+     */
+    private int shift(byte b, int offset) {
+        return ((0xFF & b) << offset);
     }
 }

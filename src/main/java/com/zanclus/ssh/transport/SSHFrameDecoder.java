@@ -15,6 +15,7 @@
  */
 package com.zanclus.ssh.transport;
 
+import com.zanclus.ssh.args.SSHDecoderArgs;
 import com.zanclus.ssh.errors.InvalidMACException;
 import com.zanclus.ssh.errors.PacketSizeException;
 import io.netty.buffer.ByteBuf;
@@ -47,20 +48,26 @@ public class SSHFrameDecoder extends ByteToMessageDecoder {
     
     private final KeyParameter key;
     private final HMAC algorithm;
+    
+    /**
+     * The block cipher implementation object for handling encryption/decryption
+     */
     private final BufferedBlockCipher cipher;
     
+    /**
+     * If TRUE, packets larger than 35000 bytes are accepted
+     */
     private boolean largePacketSupport = false;
     
     /**
      * Constructor for SSH decoder to be added to the {@link io.netty.channel.Channel} on which
      * a stream is received.
-     * @param algorithm The {@link HMAC} algorithm which this connection uses for message authentication
-     * @param key 
+     * @param args An instance of {@link SSHDecoderArgs} containing the required parameters to make this object function.
      */
-    public SSHFrameDecoder(HMAC algorithm, BufferedBlockCipher cipher, KeyParameter key) {
-        this.algorithm = algorithm;
-        this.cipher = cipher;
-        this.key = key;
+    public SSHFrameDecoder(SSHDecoderArgs args) {
+        this.algorithm = args.algorithm();
+        this.cipher = args.cipher();
+        this.key = args.key();
     }
 
     @Override
@@ -71,41 +78,7 @@ public class SSHFrameDecoder extends ByteToMessageDecoder {
             in.readBytes(header);
             int packetLen = shift(header[0], 24) | shift(header[1], 16) | shift(header[2], 8) | shift(header[3], 0);
             if (largePacketSupport || packetLen<=35000) {
-                int paddingLen = (int)header[4];
-                int payloadLen = packetLen - paddingLen - HEADER_LEN;
-                if (algorithm.equals(HMAC.NONE)) {
-                    LOG.warn("HMAC algorithm set to NONE, this SHOULD only happen during inital key exchange."
-                        + "See https://tools.ietf.org/html/rfc4253#section-6");
-                }
-                if (in.readableBytes()>=(payloadLen+paddingLen+algorithm.digestLen())) {
-
-                    // Read the payload
-                    byte[] payload = new byte[payloadLen];
-                    in.readBytes(payload);
-                    
-                    byte[] plaintext = decryptPayload(payload);
-
-                    // Skip the random padding
-                    in.skipBytes(paddingLen);
-
-                    byte[] computedMAC = calculateMAC(plaintext);
-
-                    // Read MAC from ByteBuf
-                    byte[] recievedMAC = new byte[algorithm.digestLen()];
-                    in.readBytes(recievedMAC);
-
-                    // Compare calculcated MAC with MAC read from ByteBuf
-                    if (computedMAC.length>=algorithm.digestLen() && recievedMAC.length==algorithm.digestLen()) {
-                        validateMAC(recievedMAC, computedMAC);
-                    } else {
-                        throw new InvalidMACException("Either the computed or received MAC size does not match "
-                            + "expected length for the negotiated algorithm.");
-                    }
-                    LOG.debug("Message Packet decoded and MAC verified.");
-                } else {
-                    LOG.info("Insufficient bytes to finish decoding Packet. Resetting input buffer.");
-                    in.resetReaderIndex();
-                }
+                decodePacket(header[4], packetLen, in);
             } else {
                 // Packet length cannot be greater than 35000 bytes according to RFC 4253 Section 6.1
                 throw new PacketSizeException(String.format("Packet size of '%d' exceeds RFC 4253 recommendations and "
@@ -116,6 +89,64 @@ public class SSHFrameDecoder extends ByteToMessageDecoder {
             in.resetReaderIndex();
         }
     }
+
+    /**
+     * Decode the SSH Packet
+     * @param paddingLen The length (in bytes) of the random padding.
+     * @param packetLen The length of the encrypted payload (in bytes)
+     * @param in The {@link ByteBuf} from which to read the payload data
+     * @throws IllegalAccessException Thrown by the {@link SSHFrameDecoder#decodePayload(int, io.netty.buffer.ByteBuf, int)} method
+     * @throws InvalidMACException Thrown by the {@link SSHFrameDecoder#decodePayload(int, io.netty.buffer.ByteBuf, int)} method
+     * @throws InvalidCipherTextException Thrown by the {@link SSHFrameDecoder#decodePayload(int, io.netty.buffer.ByteBuf, int)} method
+     * @throws InstantiationException Thrown by the {@link SSHFrameDecoder#decodePayload(int, io.netty.buffer.ByteBuf, int)} method
+     */
+    private void decodePacket(int paddingLen, int packetLen, ByteBuf in) throws IllegalAccessException, InvalidMACException, InvalidCipherTextException, InstantiationException {
+        int payloadLen = packetLen - paddingLen - HEADER_LEN;
+        if (algorithm.equals(HMAC.NONE)) {
+            LOG.warn("HMAC algorithm set to NONE, this SHOULD only happen during inital key exchange."
+                + "See https://tools.ietf.org/html/rfc4253#section-6");
+        }
+        if (in.readableBytes()>=(payloadLen+paddingLen+algorithm.digestLen())) {
+            
+            decodePayload(payloadLen, in, paddingLen);
+        } else {
+            LOG.info("Insufficient bytes to finish decoding Packet. Resetting input buffer.");
+            in.resetReaderIndex();
+        }
+    }
+
+    /**
+     * Given an input buffer, payload length, and padding length; parse the input buffer bytes to
+     * extract the payload data
+     * @param payloadLen The number of bytes which are expected in the encoded payload
+     * @param in The input {@link ByteBuf}
+     * @param paddingLen The expected length of the random padding bytes
+     * @return An array of {@code byte}s containing the decrypted payload
+     * @throws IllegalAccessException Thrown by the {@link SSHFrameDecoder#calculateMAC(byte[])} method
+     * @throws InvalidCipherTextException Thrown by the {@link SSHFrameDecoder#decryptPayload(byte[])} method 
+     * @throws InstantiationException Thrown by the {@link SSHFrameDecoder#calculateMAC(byte[])} method
+     * @throws InvalidMACException Thrown by the {@link SSHFrameDecoder#validateMAC(byte[], byte[])} method
+     */
+    private byte[] decodePayload(int payloadLen, ByteBuf in, int paddingLen) throws IllegalAccessException, InvalidCipherTextException, InstantiationException, InvalidMACException {
+        // Read the payload
+        byte[] payload = new byte[payloadLen];
+        in.readBytes(payload);
+        
+        byte[] plaintext = decryptPayload(payload);
+        
+        // Skip the random padding
+        in.skipBytes(paddingLen);
+        
+        byte[] computedMAC = calculateMAC(plaintext);
+        
+        // Read MAC from ByteBuf
+        byte[] recievedMAC = new byte[algorithm.digestLen()];
+        in.readBytes(recievedMAC);
+        
+        validateMAC(recievedMAC, computedMAC);
+        LOG.debug("Message Packet decoded and MAC verified.");
+        return plaintext;
+    }
     
     /**
      * Given a shared secret {@code key}, a {@code cipher}, and an encrypted payload; decrypt the
@@ -124,7 +155,7 @@ public class SSHFrameDecoder extends ByteToMessageDecoder {
      * @return An array of {@code byte}s containing the decrypted payload
      */
     private byte[] decryptPayload(byte[] payload) throws InvalidCipherTextException {
-        cipher.init(true, key);
+        cipher.init(false, key);
         byte[] plaintext = new byte[cipher.getOutputSize(payload.length)];
         int len = cipher.processBytes(payload, 0, payload.length, plaintext, 0);
         len += cipher.doFinal(plaintext, len);
@@ -146,11 +177,24 @@ public class SSHFrameDecoder extends ByteToMessageDecoder {
         return computedMAC;
     }
 
+    /**
+     * Given the MAC received in the {@link ByteBuf} and the MAC calculated from the payload, validate
+     * the MAC
+     * @param recievedMAC The MAC received in the {@link ByteBuf} via the network
+     * @param computedMAC The MAC calculated from the decoded/decrypted payload
+     * @throws InvalidMACException Thrown if the MAC cannot be validated
+     */
     private void validateMAC(byte[] recievedMAC, byte[] computedMAC) throws InvalidMACException {
-        for (int x=0; x<algorithm.digestLen(); x++) {
-            if (recievedMAC[x]!=computedMAC[x]) {
-                throw new InvalidMACException("Packet message cannot be authenticated.");
+        // Compare calculcated MAC with MAC read from ByteBuf
+        if (computedMAC.length>=algorithm.digestLen() && recievedMAC.length==algorithm.digestLen()) {
+            for (int x=0; x<algorithm.digestLen(); x++) {
+                if (recievedMAC[x]!=computedMAC[x]) {
+                    throw new InvalidMACException("Packet message cannot be authenticated.");
+                }
             }
+        } else {
+            throw new InvalidMACException("Either the computed or received MAC size does not match "
+                + "expected length for the negotiated algorithm.");
         }
     }
 

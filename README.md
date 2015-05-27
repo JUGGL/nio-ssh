@@ -74,7 +74,6 @@ public void myMethod() thows Exception { ... }   // Incorrect
 public void myMethod() throws IOException, SecurityException { ... }  // Correct
 ```
 * Remember the "Next Guy Principal"... All of the code included in this project will be maintained by many people and used by many more, so the code you write should be comprehensible by high school students.
-* Others as they are identified and codified
 * The project will be managed using [Apache Maven](http://maven.apache.org/) until such time that another build tool is determined to be a better alternative
 * All source files should be prefaced with a License header reflecting the license for this project (Apache License). An example is shown below:
 
@@ -94,6 +93,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 * Contributors to this project retain all copyrights to their work. If, at a future date, a license change is desirable; all contributors MUST agree or their code must be rewritten as a "clean-room" implementation.
+* Others as they are identified and codified
 
 ### Project Organization
 * As more people join this project and contribute, a maintainers council will be formed.

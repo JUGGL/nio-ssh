@@ -1,5 +1,8 @@
 # nio-ssh
 
+## Current Status
+1 - Not functional yet
+
 ## Overview
 
 This library is a pure Java implementation of the SSH protocol (both client and server). There are several differences
